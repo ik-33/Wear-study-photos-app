@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wear Study Photo App</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#007bff">
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #f5f5f5;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 20px;
+  }
+  .container {
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    width: 100%;
+    max-width: 400px;
+  }
+  h2 {
+    text-align: center;
+    margin-bottom: 20px;
+    color: #333;
+  }
+  label {
+    display: block;
+    margin-top: 12px;
+    font-weight: bold;
+    color: #555;
+  }
+  input, button {
+    width: 100%;
+    padding: 12px;
+    margin-top: 6px;
+    margin-bottom: 12px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    font-size: 16px;
+    box-sizing: border-box;
+  }
+  .side-buttons {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .side-buttons button {
+    flex: 1;
+    background: #ddd;
+    border: none;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  .side-buttons button.selected {
+    background: #4CAF50;
+    color: white;
+  }
+  #photoPreview {
+    width: 100%;
+    margin-top: 10px;
+    border-radius: 6px;
+    display: none;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h2>Wear Study Photo App</h2>
+
+  <label for="wearStudyId">Wear Study ID</label>
+  <input id="wearStudyId" type="text" placeholder="Enter wear study ID">
+
+  <label for="participant">Participant Number</label>
+  <input id="participant" type="text" placeholder="Enter participant number">
+
+  <label for="day">Day</label>
+  <input id="day" type="text" placeholder="Enter day number">
+
+  <label>Arm</label>
+  <div class="side-buttons">
+    <button id="leftBtn">Left</button>
+    <button id="rightBtn">Right</button>
+  </div>
+
+  <button id="chooseFolder">Choose Parent Folder</button>
+
+  <label>Take Photo</label>
+  <input type="file" accept="image/*" capture="environment" id="cameraInput" style="display:none">
+  <button id="takePhotoBtn">Take Photo</button>
+
+  <img id="photoPreview" src="" alt="Photo Preview">
+
+  <button id="savePhoto">Save Photo</button>
+</div>
+
+<script>
+let selectedSide = '';
+let folderHandle = null;
+let lastFile = null;
+
+const leftBtn = document.getElementById('leftBtn');
+const rightBtn = document.getElementById('rightBtn');
+
+leftBtn.addEventListener('click', () => {
+  selectedSide = 'L';
+  leftBtn.classList.add('selected');
+  rightBtn.classList.remove('selected');
+});
+
+rightBtn.addEventListener('click', () => {
+  selectedSide = 'R';
+  rightBtn.classList.add('selected');
+  leftBtn.classList.remove('selected');
+});
+
+// Choose parent folder
+document.getElementById('chooseFolder').addEventListener('click', async () => {
+  try {
+    folderHandle = await window.showDirectoryPicker();
+    alert('Parent folder selected!');
+  } catch (err) {
+    console.error(err);
+    alert('Folder selection cancelled.');
+  }
+});
+
+// Trigger hidden file input
+document.getElementById('takePhotoBtn').addEventListener('click', () => {
+  document.getElementById('cameraInput').click();
+});
+
+// Photo selected, show preview
+document.getElementById('cameraInput').addEventListener('change', (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  lastFile = file;
+
+  const preview = document.getElementById('photoPreview');
+  preview.src = URL.createObjectURL(file);
+  preview.style.display = 'block';
+});
+
+// Save photo to folder
+document.getElementById('savePhoto').addEventListener('click', async () => {
+  if (!lastFile) return alert("No photo taken yet!");
+  if (!folderHandle) return alert("Please choose a parent folder first!");
+  const wearStudyId = document.getElementById('wearStudyId').value.trim();
+  const participant = document.getElementById('participant').value.trim();
+  const day = document.getElementById('day').value.trim();
+  if (!wearStudyId || !participant || !day || !selectedSide) {
+    return alert("Please fill all fields and select side.");
+  }
+
+  const filename = `p${participant}_day${day}_${selectedSide}.jpg`;
+
+  try {
+    // Create or get Wear Study subfolder
+    const subFolder = await folderHandle.getDirectoryHandle(wearStudyId, { create: true });
+
+    // Save file inside that folder
+    const fileHandle = await subFolder.getFileHandle(filename, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(await lastFile.arrayBuffer());
+    await writable.close();
+
+    alert(`Saved in folder "${wearStudyId}" as ${filename}`);
+  } catch (err) {
+    console.error(err);
+    alert("Error saving photo: " + err);
+  }
+});
+
+// Register service worker for PWA
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("service-worker.js")
+    .then(() => console.log("Service Worker registered"))
+    .catch(err => console.error("SW registration failed:", err));
+}
+</script>
+</body>
+</html>
