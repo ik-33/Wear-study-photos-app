@@ -6,6 +6,7 @@
 <title>Wear Study Photo App</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#007bff">
+
 <style>
   body {
     font-family: Arial, sans-serif;
@@ -69,6 +70,7 @@
 </style>
 </head>
 <body>
+
 <div class="container">
   <h2>Wear Study Photo App</h2>
 
@@ -89,7 +91,6 @@
 
   <button id="chooseFolder">Choose Parent Folder</button>
 
-  <label>Take Photo</label>
   <input type="file" accept="image/*" capture="environment" id="cameraInput" style="display:none">
   <button id="takePhotoBtn">Take Photo</button>
 
@@ -99,90 +100,139 @@
 </div>
 
 <script>
-let selectedSide = '';
+// ------------------- Persistent Input Storage -------------------
+function saveFormState() {
+  localStorage.setItem("wearStudyId", wearStudyId.value);
+  localStorage.setItem("participant", participant.value);
+  localStorage.setItem("day", day.value);
+  localStorage.setItem("selectedSide", selectedSide);
+}
+
+function restoreFormState() {
+  wearStudyId.value = localStorage.getItem("wearStudyId") || "";
+  participant.value = localStorage.getItem("participant") || "";
+  day.value = localStorage.getItem("day") || "";
+  const savedSide = localStorage.getItem("selectedSide");
+  if (savedSide === "L") leftBtn.click();
+  if (savedSide === "R") rightBtn.click();
+}
+
+const wearStudyId = document.getElementById("wearStudyId");
+const participant = document.getElementById("participant");
+const day = document.getElementById("day");
+
+// ------------------- Side Buttons -------------------
+let selectedSide = "";
+const leftBtn = document.getElementById("leftBtn");
+const rightBtn = document.getElementById("rightBtn");
+
+leftBtn.addEventListener("click", () => {
+  selectedSide = "L";
+  saveFormState();
+  leftBtn.classList.add("selected");
+  rightBtn.classList.remove("selected");
+});
+
+rightBtn.addEventListener("click", () => {
+  selectedSide = "R";
+  saveFormState();
+  rightBtn.classList.add("selected");
+  leftBtn.classList.remove("selected");
+});
+
+// ------------------- IndexedDB Storage for Folder Handle -------------------
 let folderHandle = null;
-let lastFile = null;
+const dbRequest = indexedDB.open("folderDB", 1);
+dbRequest.onupgradeneeded = (e) => e.target.result.createObjectStore("handles");
 
-const leftBtn = document.getElementById('leftBtn');
-const rightBtn = document.getElementById('rightBtn');
+function saveFolderHandle(handle) {
+  const req = indexedDB.open("folderDB");
+  req.onsuccess = () => {
+    const db = req.result;
+    db.transaction("handles", "readwrite").objectStore("handles").put(handle, "folder");
+  };
+}
 
-leftBtn.addEventListener('click', () => {
-  selectedSide = 'L';
-  leftBtn.classList.add('selected');
-  rightBtn.classList.remove('selected');
+function loadFolderHandle(callback) {
+  const req = indexedDB.open("folderDB");
+  req.onsuccess = () => {
+    const db = req.result;
+    const getReq = db.transaction("handles", "readonly").objectStore("handles").get("folder");
+    getReq.onsuccess = () => callback(getReq.result);
+  };
+}
+
+loadFolderHandle(async (storedHandle) => {
+  if (storedHandle) {
+    const perm = await storedHandle.queryPermission({ mode: "readwrite" });
+    if (perm === "granted") folderHandle = storedHandle;
+  }
 });
 
-rightBtn.addEventListener('click', () => {
-  selectedSide = 'R';
-  rightBtn.classList.add('selected');
-  leftBtn.classList.remove('selected');
-});
-
-// Choose parent folder
-document.getElementById('chooseFolder').addEventListener('click', async () => {
+document.getElementById("chooseFolder").addEventListener("click", async () => {
   try {
     folderHandle = await window.showDirectoryPicker({ mode: "readwrite" });
-    alert('Parent folder selected!');
+    saveFolderHandle(folderHandle);
+    alert("Folder selected and remembered.");
   } catch (err) {
-    console.error(err);
-    alert('Folder selection cancelled or permissions issue.');
+    alert("Folder selection cancelled.");
   }
 });
 
-// Trigger hidden file input
-document.getElementById('takePhotoBtn').addEventListener('click', () => {
-  document.getElementById('cameraInput').click();
+// ------------------- Photo Capture -------------------
+let lastFile = null;
+document.getElementById("takePhotoBtn").addEventListener("click", () =>
+  document.getElementById("cameraInput").click()
+);
+
+document.getElementById("cameraInput").addEventListener("change", (event) => {
+  lastFile = event.target.files[0];
+  if (!lastFile) return;
+  const preview = document.getElementById("photoPreview");
+  preview.src = URL.createObjectURL(lastFile);
+  preview.style.display = "block";
 });
 
-// Photo selected, show preview
-document.getElementById('cameraInput').addEventListener('change', (event) => {
-  const file = event.target.files[0];
-  if (!file) return;
-  lastFile = file;
-
-  const preview = document.getElementById('photoPreview');
-  preview.src = URL.createObjectURL(file);
-  preview.style.display = 'block';
-});
-
-// Save photo to folder
-document.getElementById('savePhoto').addEventListener('click', async () => {
+// ------------------- Save Photo (with permission request) -------------------
+document.getElementById("savePhoto").addEventListener("click", async () => {
   if (!lastFile) return alert("No photo taken yet!");
-  if (!folderHandle) return alert("Please choose a parent folder first!");
-  const wearStudyId = document.getElementById('wearStudyId').value.trim();
-  const participant = document.getElementById('participant').value.trim();
-  const day = document.getElementById('day').value.trim();
-  if (!wearStudyId || !participant || !day || !selectedSide) {
-    return alert("Please fill all fields and select side.");
+  if (!folderHandle) return alert("No folder selected!");
+
+  // ✅ Request permission on each save (required on Android Chrome)
+  const permission = await folderHandle.requestPermission({ mode: "readwrite" });
+  if (permission !== "granted") {
+    alert("Permission denied. Please re-select your folder.");
+    return;
   }
 
-  const filename = `p${participant}_day${day}_${selectedSide}.jpg`;
+  const ws = wearStudyId.value.trim();
+  const p = participant.value.trim();
+  const d = day.value.trim();
+  if (!ws || !p || !d || !selectedSide) return alert("Fill all fields & choose side.");
+
+  const filename = `p${p}_day${d}_${selectedSide}.jpg`;
 
   try {
-    // Create or get Wear Study subfolder
-    const subFolder = await folderHandle.getDirectoryHandle(wearStudyId, { create: true });
-
-    // Save file inside that folder
+    const subFolder = await folderHandle.getDirectoryHandle(ws, { create: true });
     const fileHandle = await subFolder.getFileHandle(filename, { create: true });
     const writable = await fileHandle.createWritable();
     await writable.write(await lastFile.arrayBuffer());
     await writable.close();
 
-    alert(`Saved in folder "${wearStudyId}" as ${filename}`);
+    alert(`Saved to ${ws}/${filename}`);
   } catch (err) {
+    alert("Save failed. Try choosing the folder again.");
     console.error(err);
-    alert("Error saving photo: " + err);
   }
 });
 
-// Register service worker for PWA
+restoreFormState();
+
+// ------------------- Service Worker -------------------
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("service-worker.js")
-    .then(() => console.log("Service Worker registered"))
-    .catch(err => console.error("SW registration failed:", err));
+  navigator.serviceWorker.register("service-worker.js");
 }
 </script>
+
 </body>
 </html>
-
-
