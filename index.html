@@ -171,11 +171,11 @@ loadFolderHandle(async (storedHandle) => {
 
 document.getElementById("chooseFolder").addEventListener("click", async () => {
   try {
-    folderHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+    folderHandle = await window.showDirectoryPicker();
     saveFolderHandle(folderHandle);
     alert("Folder selected and remembered.");
   } catch (err) {
-    alert("Folder selection cancelled.");
+    alert("Folder selection cancelled or permission denied.");
   }
 });
 
@@ -236,3 +236,4 @@ if ("serviceWorker" in navigator) {
 
 </body>
 </html>
+
