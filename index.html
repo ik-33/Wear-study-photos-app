@@ -121,7 +121,7 @@ rightBtn.addEventListener('click', () => {
 // Choose parent folder
 document.getElementById('chooseFolder').addEventListener('click', async () => {
   try {
-    folderHandle = await window.showDirectoryPicker();
+    folderHandle = await window.showDirectoryPicker({ mode: "readwrite" });
     alert('Parent folder selected!');
   } catch (err) {
     console.error(err);
@@ -184,3 +184,4 @@ if ("serviceWorker" in navigator) {
 </script>
 </body>
 </html>
+
