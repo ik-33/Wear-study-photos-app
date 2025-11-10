@@ -125,7 +125,7 @@ document.getElementById('chooseFolder').addEventListener('click', async () => {
     alert('Parent folder selected!');
   } catch (err) {
     console.error(err);
-    alert('Folder selection cancelled.');
+    alert('Folder selection cancelled or permissions issue.');
   }
 });
 
@@ -184,4 +184,5 @@ if ("serviceWorker" in navigator) {
 </script>
 </body>
 </html>
+
 
