@@ -24,17 +24,8 @@
     width: 100%;
     max-width: 400px;
   }
-  h2 {
-    text-align: center;
-    margin-bottom: 20px;
-    color: #333;
-  }
-  label {
-    display: block;
-    margin-top: 12px;
-    font-weight: bold;
-    color: #555;
-  }
+  h2 { text-align: center; margin-bottom: 20px; color: #333; }
+  label { display: block; margin-top: 12px; font-weight: bold; color: #555; }
   input, button {
     width: 100%;
     padding: 12px;
@@ -45,11 +36,7 @@
     font-size: 16px;
     box-sizing: border-box;
   }
-  .side-buttons {
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
-  }
+  .side-buttons { display: flex; justify-content: space-between; gap: 10px; }
   .side-buttons button {
     flex: 1;
     background: #ddd;
@@ -57,16 +44,8 @@
     font-weight: bold;
     cursor: pointer;
   }
-  .side-buttons button.selected {
-    background: #4CAF50;
-    color: white;
-  }
-  #photoPreview {
-    width: 100%;
-    margin-top: 10px;
-    border-radius: 6px;
-    display: none;
-  }
+  .side-buttons button.selected { background: #4CAF50; color: white; }
+  #photoPreview { width: 100%; margin-top: 10px; border-radius: 6px; display: none; }
 </style>
 </head>
 <body>
@@ -100,7 +79,32 @@
 </div>
 
 <script>
-// ------------------- Persistent Input Storage -------------------
+// ------------------- IndexedDB for Folder Handle -------------------
+let folderHandle = null;
+
+function saveFolderHandle(handle) {
+  const req = indexedDB.open("folderDB", 1);
+  req.onupgradeneeded = e => e.target.result.createObjectStore("handles");
+  req.onsuccess = () => {
+    const db = req.result;
+    db.transaction("handles", "readwrite").objectStore("handles").put(handle, "folder");
+  };
+}
+
+function loadFolderHandle(callback) {
+  const req = indexedDB.open("folderDB", 1);
+  req.onsuccess = () => {
+    const db = req.result;
+    const getReq = db.transaction("handles", "readonly").objectStore("handles").get("folder");
+    getReq.onsuccess = () => callback(getReq.result || null);
+  };
+}
+
+// ------------------- Persistent Form Inputs -------------------
+const wearStudyId = document.getElementById("wearStudyId");
+const participant = document.getElementById("participant");
+const day = document.getElementById("day");
+
 function saveFormState() {
   localStorage.setItem("wearStudyId", wearStudyId.value);
   localStorage.setItem("participant", participant.value);
@@ -113,13 +117,9 @@ function restoreFormState() {
   participant.value = localStorage.getItem("participant") || "";
   day.value = localStorage.getItem("day") || "";
   const savedSide = localStorage.getItem("selectedSide");
-  if (savedSide === "L") leftBtn.click();
-  if (savedSide === "R") rightBtn.click();
+  if (savedSide === "L") leftBtn.classList.add("selected");
+  if (savedSide === "R") rightBtn.classList.add("selected");
 }
-
-const wearStudyId = document.getElementById("wearStudyId");
-const participant = document.getElementById("participant");
-const day = document.getElementById("day");
 
 // ------------------- Side Buttons -------------------
 let selectedSide = "";
@@ -140,46 +140,33 @@ rightBtn.addEventListener("click", () => {
   leftBtn.classList.remove("selected");
 });
 
-// ------------------- IndexedDB Storage for Folder Handle -------------------
-let folderHandle = null;
-const dbRequest = indexedDB.open("folderDB", 1);
-dbRequest.onupgradeneeded = (e) => e.target.result.createObjectStore("handles");
-
-function saveFolderHandle(handle) {
-  const req = indexedDB.open("folderDB");
-  req.onsuccess = () => {
-    const db = req.result;
-    db.transaction("handles", "readwrite").objectStore("handles").put(handle, "folder");
-  };
-}
-
-function loadFolderHandle(callback) {
-  const req = indexedDB.open("folderDB");
-  req.onsuccess = () => {
-    const db = req.result;
-    const getReq = db.transaction("handles", "readonly").objectStore("handles").get("folder");
-    getReq.onsuccess = () => callback(getReq.result);
-  };
-}
-
-loadFolderHandle(async (storedHandle) => {
-  if (storedHandle) {
-    const perm = await storedHandle.queryPermission({ mode: "readwrite" });
-    if (perm === "granted") folderHandle = storedHandle;
-  }
-});
-
+// ------------------- Folder Selection (Chrome 120+ Compatible) -------------------
 document.getElementById("chooseFolder").addEventListener("click", async () => {
   try {
-    folderHandle = await window.showDirectoryPicker();
+    // Must happen directly inside click handler
+    const handle = await window.showDirectoryPicker();
+    const permission = await handle.requestPermission({ mode: "readwrite" });
+    if (permission !== "granted") throw new Error("Permission not granted");
+
+    folderHandle = handle;
     saveFolderHandle(folderHandle);
     alert("Folder selected and remembered.");
   } catch (err) {
+    console.error(err);
     alert("Folder selection cancelled or permission denied.");
   }
 });
 
-// ------------------- Photo Capture -------------------
+// Restore previously saved folder handle if permission still valid
+loadFolderHandle(async (storedHandle) => {
+  if (storedHandle) {
+    const perm = await storedHandle.queryPermission({ mode: "readwrite" });
+    if (perm === "granted") folderHandle = storedHandle;
+    else console.warn("Stored folder handle permission revoked.");
+  }
+});
+
+// ------------------- Camera Capture -------------------
 let lastFile = null;
 document.getElementById("takePhotoBtn").addEventListener("click", () =>
   document.getElementById("cameraInput").click()
@@ -193,17 +180,13 @@ document.getElementById("cameraInput").addEventListener("change", (event) => {
   preview.style.display = "block";
 });
 
-// ------------------- Save Photo (with permission request) -------------------
+// ------------------- Save Photo -------------------
 document.getElementById("savePhoto").addEventListener("click", async () => {
   if (!lastFile) return alert("No photo taken yet!");
   if (!folderHandle) return alert("No folder selected!");
 
-  // ✅ Request permission on each save (required on Android Chrome)
   const permission = await folderHandle.requestPermission({ mode: "readwrite" });
-  if (permission !== "granted") {
-    alert("Permission denied. Please re-select your folder.");
-    return;
-  }
+  if (permission !== "granted") return alert("Permission denied. Re-select your folder.");
 
   const ws = wearStudyId.value.trim();
   const p = participant.value.trim();
@@ -218,14 +201,14 @@ document.getElementById("savePhoto").addEventListener("click", async () => {
     const writable = await fileHandle.createWritable();
     await writable.write(await lastFile.arrayBuffer());
     await writable.close();
-
     alert(`Saved to ${ws}/${filename}`);
   } catch (err) {
-    alert("Save failed. Try choosing the folder again.");
     console.error(err);
+    alert("Save failed. Try choosing the folder again.");
   }
 });
 
+// ------------------- Restore Form State -------------------
 restoreFormState();
 
 // ------------------- Service Worker -------------------
@@ -236,4 +219,3 @@ if ("serviceWorker" in navigator) {
 
 </body>
 </html>
-
